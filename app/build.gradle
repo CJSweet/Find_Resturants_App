@@ -1,0 +1,61 @@
+apply plugin: 'com.android.application'
+apply plugin: 'kotlin-android'
+apply plugin: 'kotlin-android-extensions'
+
+android {
+    compileSdkVersion 29
+
+    defaultConfig {
+        applicationId "com.example.prairyinterviewapp"
+        minSdkVersion 26
+        targetSdkVersion 29
+        versionCode 1
+        versionName "1.0"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: "libs", include: ["*.jar"])
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation 'androidx.core:core-ktx:1.3.1'
+    implementation 'androidx.appcompat:appcompat:1.2.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.0.1'
+    implementation 'com.google.android.gms:play-services-maps:17.0.0'
+    testImplementation 'junit:junit:4.12'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.3.0'
+
+    // For Google Location
+    implementation 'com.google.android.gms:play-services-location:17.0.0'
+
+    // For JSON parser
+    implementation 'com.beust:klaxon:5.0.1'
+
+    //For RxJava and RetroFit
+    implementation "com.squareup.retrofit2:retrofit:2.5.0"
+    implementation "com.squareup.retrofit2:adapter-rxjava2:2.3.0"
+    implementation "com.squareup.retrofit2:converter-gson:2.3.0"
+    implementation "io.reactivex.rxjava2:rxandroid:2.0.1"
+
+    // OkHTTP library
+    implementation("com.squareup.okhttp3:okhttp:4.8.1")
+
+    // Gson
+    implementation 'com.google.code.gson:gson:2.8.6'
+
+    //For Google Maps
+    implementation 'com.google.android.gms:play-services-maps:17.0.0'
+
+    //For coroutines
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.9'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.9'
+}
