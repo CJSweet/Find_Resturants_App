@@ -11,15 +11,15 @@ import androidx.core.content.ContextCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
-import com.google.gson.GsonBuilder
-import okhttp3.*
-import java.io.IOException
-import kotlinx.coroutines.*
+import io.reactivex.disposables.CompositeDisposable
+import io.reactivex.schedulers.Schedulers
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -30,26 +30,23 @@ class MainActivity : AppCompatActivity() {
 
     // For the Map fragment
     // https://www.youtube.com/watch?v=suwq7Nta3oM
-    lateinit var mapFragment: SupportMapFragment
+    private lateinit var mapFragment: SupportMapFragment
 
-    // This is for finding the User location through Google Play Services
-    private lateinit var fusedLocationProviderClient: FusedLocationProviderClient
+    // Location of phone is a global variable because it is needed
+    // in two methods (getUserLocation, and setMap) that are not
+    // run adjacent to each other
     private lateinit var myLoc: LatLng
-    private lateinit var coordList: ArrayList<LatLng>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
-        // init coordList for later, stores the LatLng of all restuarants that will be shown
-        coordList = ArrayList()
 
         // init Map Fragment
         mapFragment =
             supportFragmentManager.findFragmentById(R.id.map_fragment) as SupportMapFragment
 
         // location permission check, if approved, get user information
-        // then get API info, then show Map with User and resturant locations
+        // then get API info, then show Map with User and restaurant locations
         checkLocationPermission()
     }
 
@@ -76,7 +73,6 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         when (requestCode) {
-
             PERMISSION_LOCATION_CODE -> {
                 if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     // User has selected the permission to be granted
@@ -93,70 +89,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun getAPIInfo() {
-        // Most of the code in this method is from: // https://www.youtube.com/watch?v=53BsyxwSBJk&t=762s
-
-        //Specify URL
-        val url = "https://data.cityofchicago.org/resource/j8a4-a59k.json"
-
-        // Need a request built to send for getting the JSON file
-        val request = Request.Builder().url(url).build()
-
-        // create the client to request the JSON file from site
-        val client = OkHttpClient()
-
-        //enqueue needs response Callback, and this runs on another thread, not main
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                Log.d("MainActivity", "onFailure: Request for JSON has failed")
-            }
-
-            // If request is  Success full, get body of response, and convert to the needed LatLng
-            override fun onResponse(call: Call, response: Response) {
-                // get body
-                val body = response.body?.string()
-
-                // Gson is good for making JSON into Java objects and vice versa
-                val gson = GsonBuilder().create()
-
-                // Make a list of the body response, since the data comes in an array like format
-                // code from: https://stackoverflow.com/questions/45603236/using-gson-in-kotlin-to-parse-json-array
-                // Only want the first 100 entries, because those are the most recent
-                val dataAsList =
-                    gson.fromJson(body, Array<Restaurant>::class.java).asList().subList(0, 100)
-
-                // filter the Data list to remove all Risk 3 restaurants, leaving only Risk 2 and Risk 1 resturants
-                val filteredData = dataAsList.filter {
-                    it.risk != "Risk 3 (Low)"
-                }
-
-                // with the filtered list, make a list of LatLng variables of each restuarant so we can use it for adding
-                // markers to the map
-                for (place in filteredData.indices) {
-                    coordList.add(
-                        LatLng(
-                            filteredData[place].latitude.toDouble(),
-                            filteredData[place].longitude.toDouble()
-                        )
-                    )
-                }
-
-                // Now that the user Location has been found and the locations
-                // of the resturants are ready, we can now set the Map up
-                // Must be in the Main Thread so we need to switch back over from this thread.
-                GlobalScope.launch(Dispatchers.Main) {
-                    setMap()
-                }
-            }
-        })
-    }
-
     // The only way to reach this method is if permission already has been granted, so we can
     // suppress the error message
     @SuppressLint("MissingPermission")
     private fun getUserLocation() {
-        //create Fused Location Provider Client to begin getting last know location
-        fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
+        // create Fused Location Provider Client to begin getting last know location
+        val fusedLocationProviderClient: FusedLocationProviderClient =
+            LocationServices.getFusedLocationProviderClient(this)
 
         // get last location, which most likely is where the user is located
         // there are rare exceptions, but for this app I will not worry about those instances
@@ -175,10 +114,78 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun getAPIInfo() {
+        // Most of the code in this method and from the ServiceBuilder/DataClass/ApiInterface files is from:
+        // https://dev.to/paulodhiambo/kotlin-and-retrofit-network-calls-2353#:~:text=use%20retrofit%20to%20make%20network%20calls%20from%20our%20applications.&text=Http%20client%20fro%20android%20created%20by%20the%20same%20company%20that%20created%20retrofit.&text=into%20a%20JSON%20format.
+        // and RxJava code from:
+        // https://dev.to/paulodhiambo/kotlin-rxjava-retrofit-tutorial-18hn
+
+        // Composite Disposable combines all disposables so it is easier to remove all
+        // observers when done observing
+        //
+        // Disposables are the connections between the observable and the observer
+        // When observable is created, a "stream" runs from the observable to the observer,
+        // This stream is called a Disposable
+        val compositeDisposable = CompositeDisposable()
+
+        compositeDisposable.add(
+            ServiceBuilder.buildService() // call function from object
+                .getRestaurants() // call method from interface to request JSON from URL with GET request
+                .observeOn(Schedulers.io()) // observe the results on the main thread
+                .subscribeOn(Schedulers.io()) // work on a background io thread
+                .subscribe(
+                    { response -> onResponse(response) },
+                    { error -> onError(error) }) // these will be the subscribe functions that will be called on completion
+        )
+    }
+
+    private fun onResponse(restaurants: List<Restaurant>) {
+        // get body List of all restaurants, get first 100 and then filter it
+        val filteredData = restaurants.subList(0, 100).filter {
+            it.risk != "Risk 3 (Low)"
+        }
+
+        // ArrayList for the LatLng's needed for restaurant markers
+        // Coordinates List
+        val coordList = ArrayList<LatLng>()
+
+        // with the filtered list, make a list of LatLng variables of each restuarant so we can use it for adding
+        // markers to the map
+        for (place in filteredData.indices) {
+            coordList.add(
+                LatLng(
+                    filteredData[place].latitude.toDouble(),
+                    filteredData[place].longitude.toDouble()
+                )
+            )
+        }
+
+        // Now that the user Location has been found and the locations
+        // of the restaurants are ready, we can now set the Map up
+        // Must be in the Main Thread so we need to switch back over from this thread.
+        GlobalScope.launch(Dispatchers.Main) {
+            setMap(coordList)
+        }
+    }
+
+    private fun onError(error: Throwable) {
+        Log.d("MainActivity", "onFailure: Request for JSON has failed - $error")
+
+        // Let the user know that something went wrong with the request for the restaurants by showing
+        // Toast in main thread
+        GlobalScope.launch(Dispatchers.Main) {
+            showErrorToast(error)
+        }
+    }
+
+    private fun showErrorToast(error: Throwable) {
+        Toast.makeText(this, "Error with request: $error", Toast.LENGTH_SHORT).show()
+    }
+
     // The only way to reach this method is if permission already has been granted, so we can
     // suppress the error message
     @SuppressLint("MissingPermission")
-    private fun setMap() {
+    private fun setMap(coordList: ArrayList<LatLng>) {
         // we now have all the information needed to create or map
         mapFragment.getMapAsync {
             //  allow for location of user to be shown
@@ -205,47 +212,3 @@ class MainActivity : AppCompatActivity() {
         }
     }
 }
-
-// This class is used when getting the APIInfo
-// Gson converts each JSON array element into this
-// Restaurant object
-class Restaurant(
-    val risk: String,
-    val latitude: String,
-    val longitude: String
-)
-
-
-// I tried to work with RxJava and RetroFit to get the Json file and elements
-// since that is the popular method but I could not figure it out. It would be better
-// than using OkHttp by itself because with RxJava and Retrofit I believe it would not
-// download the entire JSON file and take up so much storage. However, I could not get it
-// to work and using OkHttp and Gson was much more understandable for me.
-// Below is some of the code I was trying to work with
-
-//        val string = Retrofit.Builder()
-//            .baseUrl("https://data.cityofchicago.org/")
-//            .addCallAdapterFactory(RxJava2CallAdapterFactory.create())
-//            .addConverterFactory(GsonConverterFactory.create())
-//            .build()
-//            .create(Api::class.java)
-//            .loadDataInUsualWay()
-
-//data class DataHolder (
-//    @SerializedName("data") val data: Array<DataItem>
-//)
-//
-//data class DataItem (
-//    @SerializedName("inspection_id") val inspectionId: Long,
-//    @SerializedName("inspection_date") val inspectionDate: String,
-//    @SerializedName("risk") val risk : String,
-//    @SerializedName("latitude") val latitude : Int,
-//    @SerializedName("longitude") val longitude : Int
-//)
-//
-//interface Api {
-//
-//    @GET("resource/j8a4-a59k.json")
-//    fun loadDataInUsualWay(): Single<DataHolder>
-//}
-

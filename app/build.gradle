@@ -37,20 +37,18 @@ dependencies {
     // For Google Location
     implementation 'com.google.android.gms:play-services-location:17.0.0'
 
-    // For JSON parser
-    implementation 'com.beust:klaxon:5.0.1'
-
     //For RxJava and RetroFit
     implementation "com.squareup.retrofit2:retrofit:2.5.0"
     implementation "com.squareup.retrofit2:adapter-rxjava2:2.3.0"
     implementation "com.squareup.retrofit2:converter-gson:2.3.0"
+    //RxJava
+    implementation 'io.reactivex.rxjava2:rxjava:2.2.12'
+    //RxAdroid
     implementation "io.reactivex.rxjava2:rxandroid:2.0.1"
 
-    // OkHTTP library
-    implementation("com.squareup.okhttp3:okhttp:4.8.1")
+    // OkHttp
+    implementation("com.squareup.okhttp3:okhttp:4.9.0")
 
-    // Gson
-    implementation 'com.google.code.gson:gson:2.8.6'
 
     //For Google Maps
     implementation 'com.google.android.gms:play-services-maps:17.0.0'
